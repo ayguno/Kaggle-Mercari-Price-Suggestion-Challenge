@@ -1,0 +1,54 @@
+---
+title: "KaggleMercariPriceSuggestionChallengeKernel"
+author: "Ozan Aygun"
+date: "12/15/2017"
+output: 
+   html_document:
+        toc: true
+        number_sections: true
+        depth: 4
+        theme: cerulean
+        highlight: tango
+        df_print: paged
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(results = "markup", fig.align = "center",
+                      fig.width = 5, fig.height = 4,message=FALSE,warning=FALSE)
+```
+
+
+# Introduction and summary
+
+
+
+# Loading the data
+
+```{r, cache=TRUE}
+# Need to download files from kaggle (links available only after login!)
+# Need to get 'archive' package to make a connection to 7z zipped files!
+# devtools::install_github("jimhester/archive")
+# library(archive);library(readr)
+# train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
+# test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
+# sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
+# 
+# # Save the training and test sets for easy loading in future
+# saveRDS(train, "train.rds") 
+# saveRDS(test,"test.rds")
+# write.csv(sample_submission,"sample_submission.csv", row.names = FALSE)
+#unlink(dir(pattern = ".7z")) # Finally delete the 7z files from directory
+```
+
+# Summarizing the data
+```{r,cache=TRUE}
+# Read from the rds objects
+train <- readRDS("train.rds") ; test <- readRDS("test.rds") 
+summary(train)
+temp = NULL
+for(i in 1:ncol(train)){temp[i] <- length(unique(train[,i]))}
+
+```
+
