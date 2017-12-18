@@ -30,7 +30,7 @@ knitr::opts_chunk$set(results = "markup", fig.align = "center",
 # Need to download files from kaggle (links available only after login!)
 # Need to get 'archive' package to make a connection to 7z zipped files!
 # devtools::install_github("jimhester/archive")
-# library(archive);library(readr)
+library(archive);library(readr)
 # train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
 # test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
 # sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
