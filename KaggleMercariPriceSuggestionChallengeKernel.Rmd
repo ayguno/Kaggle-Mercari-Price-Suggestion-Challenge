@@ -30,16 +30,15 @@ knitr::opts_chunk$set(results = "markup", fig.align = "center",
 # Need to download files from kaggle (links available only after login!)
 # Need to get 'archive' package to make a connection to 7z zipped files!
 # devtools::install_github("jimhester/archive")
-library(archive);library(readr)
-# train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
-# test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
-# sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
+#library(archive);library(readr)
+#train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
+#test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
+#sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
 # 
 # # Save the training and test sets for easy loading in future
-# saveRDS(train, "train.rds") 
-# saveRDS(test,"test.rds")
+#saveRDS(train, "train.rds");saveRDS(test,"test.rds")
 # write.csv(sample_submission,"sample_submission.csv", row.names = FALSE)
-#unlink(dir(pattern = ".7z")) # Finally delete the 7z files from directory
+unlink(dir(pattern = ".7z")) # Finally delete the 7z files from directory
 ```
 
 # Summarizing the data
@@ -47,8 +46,94 @@ library(archive);library(readr)
 # Read from the rds objects
 train <- readRDS("train.rds") ; test <- readRDS("test.rds") 
 summary(train)
-temp = NULL
-for(i in 1:ncol(train)){temp[i] <- length(unique(train[,i]))}
+summary(test)
+```
+We have a continuous outcome(price), so this is a regression problem. Most of the features appear strings. So we are likely to perform some text mining and feature engineering.
 
+# Partitioning the training set
+
+The training set we have is fairly large, so it will not be wasteful if we split this data set into two for sub-training and validation respectively. We will explore and train the model on the sub-training set, perform initial validation in the validation set, and submit predictions for the test set provided.
+
+```{r,cache=TRUE}
+library(caret)
+set.seed(12345)
+subtrainID <- createDataPartition(y = train$price, p = 0.5, list = FALSE)
+subtrain <- train[subtrainID[,1],]
+validation <- train[-subtrainID[,1],]
 ```
 
+# Exploratory data analysis using sub-training set
+
+For the ease of making plots, I will explore a randomly selected subset (5%) of the subtraining set, I will call this set as **mini.subtrain**. Note that even 10% of this data set contains ~37,000 observations!
+
+```{r,cache= TRUE, fig.align= "center", fig.width=12}
+set.seed(12345)
+mini.subtrainID <- createDataPartition(y = subtrain$price, p = 0.05, list = FALSE)
+mini.subtrain <- subtrain[mini.subtrainID[,1],]
+```
+
+Let's start looking at the data,
+
+## Distribution of the outcome
+
+```{r,cache=TRUE, fig.width=10}
+par(mfrow = c(1,3))
+hist(mini.subtrain$price, breaks = 50, col = "navy")
+hist(log(mini.subtrain$price), breaks = 50, col = "navy")
+```
+
+
+## Checking for missing values
+```{r, cache=TRUE}
+apply(is.na(subtrain),2,sum)
+```
+
+It appears that most of the missing values are in the category name and brand name (half of the values are mising)
+
+### Generic items are slightly cheaper
+
+One obvious thing to look at is whether the price of items that are missing such features have significantly different prices:
+```{r,cache=TRUE}
+library(ggplot2)
+ggplot(data = mini.subtrain, aes(y = log(price+1),fill =factor(is.na(category_name)), x = factor(is.na(category_name))))+
+        geom_boxplot()
+
+ggplot(data = mini.subtrain, aes(y = log(price+1),fill =factor(is.na(brand_name)), x = factor(is.na(brand_name))))+
+        geom_boxplot()
+```
+
+It is perhaps expected the items with no brand name will be slightly cheaper. Therefore, this looks like a new feature to add into the data sets:
+
+```{r,cache=TRUE}
+library(dplyr)
+mini.subtrain <- mutate(mini.subtrain,no.brand_name = ifelse(is.na(brand_name),1,0))
+subtrain <- mutate(subtrain,no.brand_name = ifelse(is.na(brand_name),1,0))
+validation <- mutate(validation,no.brand_name = ifelse(is.na(brand_name),1,0))
+test <- mutate(test,no.brand_name = ifelse(is.na(brand_name),1,0))
+```
+
+###Uniqueness profile of features
+
+```{r}
+uniqueness <- apply(subtrain,2,function(x){return(length(unique(x)))})
+names(uniqueness) <- colnames(subtrain)
+uniqueness
+```
+
+Except 2 binary variables, and one potential categorical variable (item_condition_id), the rest of the features can be regarded as string, and we will create new features from them using text mining.
+
+First, store the ID variables for all data sets and remove them:
+
+```{r}
+mini.subtrain.train_id <- mini.subtrain$train_id
+mini.subtrain <- dplyr::select(mini.subtrain,-train_id)
+
+subtrain.train_id <- subtrain$train_id
+subtrain <- dplyr::select(subtrain,-train_id)
+
+validation.train_id <- validation$train_id
+validation <- dplyr::select(validation,-train_id)
+
+test.test_id <- test$test_id
+test <- dplyr::select(test,-test_id)
+```
