@@ -137,3 +137,60 @@ validation <- dplyr::select(validation,-train_id)
 test.test_id <- test$test_id
 test <- dplyr::select(test,-test_id)
 ```
+
+### item condition id in relation to shipping and having a brand name
+
+```{r, fig.width=10, cache=TRUE}
+ggplot(data = mini.subtrain, aes(y = log(price+1), x = factor(item_condition_id),
+                                fill = factor(item_condition_id)))+
+                                facet_grid(factor(shipping) ~ factor(no.brand_name))+
+                                geom_boxplot()+
+                                geom_jitter(alpha = 0.05,size = 0.2, color = "navy")
+```
+
+These features alone do not seem to explain too much variability in the price. We need stronger features!
+
+###Text mining and feature engineering
+
+####Looking for 'free' or 'unpriced' items v.s. most expensive items
+
+Our first suspect would be there are certain keywords that are frequently associated with free items, which could be a good feature to predict these items:
+```{r,cache=TRUE}
+sum(subtrain$price == 0)
+```
+
+There are about 400 free items in the subtraining set.
+
+```{r}
+v <- subtrain$item_description[subtrain$price == 0]
+write.table(v,"v.txt")
+c1 <- scan("v.txt", what = "character", sep = "\n")
+c2 <- tolower(c1)
+c3 <- unlist(strsplit(c2, "\\W"))
+c3 <- c3[-(which(c3 == ""))]
+freq <- table(c3)
+freq1 <- sort(freq, decreasing = TRUE)
+sorted.table <- data.frame(Word = names(freq1),freq1)
+ggplot(data = sorted.table[1:20,])+
+    geom_point(aes(x = Freq, y = reorder(Word,Freq),size = 0.3), color = "navy")
+        
+```
+
+Some of the text we pick here are probably things that are not correctly interpreted. They form the most frequent text.
+
+How about we look at the top 5% most expensive items?
+
+```{r,cache=TRUE}
+v <- subtrain$item_description[subtrain$price >= quantile(subtrain$price,0.95)]
+write.table(v,"v.txt")
+c1 <- scan("v.txt", what = "character", sep = "\n")
+c2 <- tolower(c1)
+c3 <- unlist(strsplit(c2, "\\W"))
+c3 <- c3[-(which(c3 == ""))]
+freq <- table(c3)
+freq1 <- sort(freq, decreasing = TRUE)
+sorted.table <- data.frame(Word = names(freq1),freq1)
+ggplot(data = sorted.table[1:20,])+
+    geom_point(aes(x = Freq, y = reorder(Word,Freq),size = 0.3), color = "navy")
+```
+
