@@ -161,36 +161,107 @@ sum(subtrain$price == 0)
 
 There are about 400 free items in the subtraining set.
 
-```{r}
+```{r, fig.height=8}
 v <- subtrain$item_description[subtrain$price == 0]
 write.table(v,"v.txt")
 c1 <- scan("v.txt", what = "character", sep = "\n")
 c2 <- tolower(c1)
-c3 <- unlist(strsplit(c2, "\\W"))
+c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
 c3 <- c3[-(which(c3 == ""))]
 freq <- table(c3)
 freq1 <- sort(freq, decreasing = TRUE)
-sorted.table <- data.frame(Word = names(freq1),freq1)
-ggplot(data = sorted.table[1:20,])+
+freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
+sorted.table.free <- data.frame(Word = names(freq1),freq2)
+ggplot(data = sorted.table.free[1:50,])+
     geom_point(aes(x = Freq, y = reorder(Word,Freq),size = 0.3), color = "navy")
         
 ```
 
 Some of the text we pick here are probably things that are not correctly interpreted. They form the most frequent text.
 
-How about we look at the top 5% most expensive items?
+How about we look at the top 1% most expensive items?
 
-```{r,cache=TRUE}
-v <- subtrain$item_description[subtrain$price >= quantile(subtrain$price,0.95)]
+```{r,fig.height=8}
+v <- subtrain$item_description[subtrain$price >= quantile(subtrain$price,0.99)]
 write.table(v,"v.txt")
 c1 <- scan("v.txt", what = "character", sep = "\n")
 c2 <- tolower(c1)
-c3 <- unlist(strsplit(c2, "\\W"))
+c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
 c3 <- c3[-(which(c3 == ""))]
 freq <- table(c3)
 freq1 <- sort(freq, decreasing = TRUE)
-sorted.table <- data.frame(Word = names(freq1),freq1)
-ggplot(data = sorted.table[1:20,])+
+freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
+sorted.table.expensive <- data.frame(Word = names(freq1),freq2)
+ggplot(data = sorted.table.expensive[1:50,])+
     geom_point(aes(x = Freq, y = reorder(Word,Freq),size = 0.3), color = "navy")
 ```
 
+Now let's look at the words in free and expensive items together:
+
+```{r, fig.width=12, fig.height=7}
+# Get top 50 most frequent words from each group after removing the most frequent words
+
+sorted.table.free.100 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][40:90,]
+sorted.table.expensive.100 <-sorted.table.expensive[order(sorted.table.expensive$Freq,decreasing = TRUE),][40:90,]
+
+merged.table <- merge(sorted.table.free.100,sorted.table.expensive.100, by = c("Word"), all = TRUE,
+                      suffixes = c("free","expensive"))
+row.names(merged.table) = merged.table$Word
+merged.table <- as.matrix(merged.table[,c(3,5)])
+#Replace NA's with zero
+merged.table[is.na(merged.table[,1]),1] <- 0
+merged.table[is.na(merged.table[,2]),2] <- 0
+library(pheatmap)
+pheatmap(t(merged.table))
+```
+
+There could be some potential to seperate price segments from each other by using the frequencies of different words. Let's perform a more extensive segmentation analysis.
+
+```{r, eval=FALSE}
+# Long operation! 
+
+# Divide the subtrain data into 10 quantiles after setting aside the free items
+subtrain.nonzero <- subtrain[subtrain$price != 0,]
+sorted.table.free.50 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][1:50,]
+merged.table <- sorted.table.free.50[,c(1,3)]
+colnames(merged.table)[2] <- paste0("price_percentile_0")
+# Totally 21 segments
+percentiles <- seq(0.05, 0.99, 0.1)
+for(i in seq_along(percentiles)){
+# For each segment, calculate word frequencies in the item description, get top 50 most frequent words
+        v <- subtrain.nonzero$item_description[subtrain.nonzero$price >= quantile(subtrain.nonzero$price,percentiles[i])]
+        write.table(v,"v.txt")
+        c1 <- scan("v.txt", what = "character", sep = "\n")
+        c2 <- tolower(c1)
+        c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
+        c3 <- c3[-(which(c3 == ""))]
+        freq <- table(c3)
+        freq1 <- sort(freq, decreasing = TRUE)
+        freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
+        sorted.table <- data.frame(Word = names(freq1),freq2)
+        sorted.table <- sorted.table[order(sorted.table$Freq, decreasing = TRUE),][1:50,]
+        sorted.table <- sorted.table[,c(1,3)]
+        colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
+# Merge into a data frame
+        merged.table <- merge(merged.table,sorted.table, by = c("Word"), all = TRUE)
+}
+```
+
+```{r, fig.width=10, fig.height= 7}
+#Save for future use
+# saveRDS(merged.table,"merged_table.rds")
+# easy load
+merged.table <- readRDS("merged_table.rds")
+
+merged.table <- merged.table[!is.na(merged.table$Word),]
+
+row.names(merged.table) = merged.table$Word
+merged.table <- dplyr::select(merged.table, -Word)
+merged.table <- as.matrix(merged.table)
+
+#Replace NA's with zero
+for (i in 1:11){merged.table[is.na(merged.table[,i]),i] <- 0}
+
+# Cluster into a heatmap
+pheatmap(t(merged.table),scale = "row", cluster_rows = FALSE)
+```
