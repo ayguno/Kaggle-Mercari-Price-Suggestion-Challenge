@@ -161,7 +161,7 @@ length.name <- sapply(mini.subtrain$name,nchar)
 length.category <- sapply(mini.subtrain$category_name,nchar)
 length.brand <- sapply(mini.subtrain$brand_name,nchar)
 length.description <- sapply(mini.subtrain$item_description,nchar)
-pairs(log(mini.subtrain$price) ~ length.name + length.category + length.brand + length.description,
+pairs(log(mini.subtrain$price) ~ length.name + length.category + length.brand + log(length.description),
       pch = 19, col = "navy", cex = 0.2)
 ```
 
@@ -174,7 +174,7 @@ excl.name <- str_count(mini.subtrain$name, "!")
 excl.category <- str_count(mini.subtrain$category_name,"!")
 excl.brand <- str_count(mini.subtrain$brand_name,"!")
 excl.description <- str_count(mini.subtrain$item_description,"!")
-pairs(log(mini.subtrain$price) ~ excl.name + excl.category + excl.brand + excl.description,
+pairs(log(mini.subtrain$price) ~ excl.name + excl.category + excl.brand + log(excl.description),
       pch = 19, col = "purple", cex = 0.2)
 
 ```
@@ -234,9 +234,94 @@ test$excl.name <- str_count(test$name, "!") * test$item_condition_id
 
 How about any characters excluding letters, commas or numbers?
 
+```{r,fig.width= 8}
+special.character.description <- sapply(mini.subtrain$item_description,function(x){
+return(nchar(str_trim(gsub("[a-zA-Z]|,|\\.|[0-9]","",x))))})
+ggplot(data = mini.subtrain, aes(y = log(price),x= log(special.character.description+1)))+
+        geom_point(col = "purple", alpha = 0.4,size =0.9)+
+        facet_grid(factor(shipping) ~ factor(item_condition_id))       
+
+```
+
+```{r,fig.width= 8}
+special.character.name <- sapply(mini.subtrain$name,function(x){
+return(nchar(str_trim(gsub("[a-zA-Z]|,|\\.|[0-9]","",x))))})
+ggplot(data = mini.subtrain, aes(y = log(price),x= log(special.character.name+1)))+
+        geom_point(col = "navy", alpha = 0.4,size =0.9)+
+        facet_grid(factor(shipping) ~ factor(item_condition_id))       
+
+```
+
+What happens in special.character.name X item_condition_id interaction?
+
+
+```{r,fig.width=10}
+ggplot(data = mini.subtrain, aes(y = log(price),x= log(special.character.name+1) * item_condition_id))+
+        geom_point(col = "blue", alpha = 0.4,size =1)+
+        facet_grid( . ~ factor(shipping))
+```
+
+In the case of name, this looks like not a bad feature. 
+
 ```{r}
-special.character <- sapply(mini.subtrain$item_description,function(x){
-return(nchar(str_trim(gsub("[a-zA-Z]|,|\\.|[0-9]","",x))})
+cor(log(special.character.name+1) * mini.subtrain$item_condition_id,mini.subtrain$excl.name)
+```
+Sounds like we are not adding a highly correlated feature,either.
+
+How about just counting the stars (*) ?
+
+```{r,fig.width= 10, fig.height=10}
+star.name <- str_count(mini.subtrain$name,"\\*") 
+star.description <- str_count(mini.subtrain$item_description,"\\*")
+pairs(log(mini.subtrain$price) ~ log(star.name +1) + log(star.description+1),pch = 19, col = "navy", cex = 0.2)
+```
+
+How about just counting the text starting with stars (*) ?
+
+```{r,fig.width= 5, }
+start.name <- str_count(mini.subtrain$name,"^\\*") 
+start.description <- str_count(mini.subtrain$item_description,"^\\*")
+ggplot(mini.subtrain,aes(y = log(price+1), x = factor(start.name))) +
+        geom_boxplot(fill = )
+ggplot(mini.subtrain,aes(y = log(price+1), x = factor(start.description))) +
+        geom_boxplot() 
+```
+
+These are not so impressive features. 
+
+How about we just count the numbers?
+
+
+```{r,fig.width= 10 }
+number.name <- str_count(mini.subtrain$name,"[0-9]") 
+number.description <- str_count(mini.subtrain$item_description,"[0-9]")
+pairs(log(mini.subtrain$price) ~ log(number.name +1) + log(number.description+1),pch = 19, col = "navy", cex = 0.2)
+```
+
+How about we just count the $ sign?
+
+```{r,fig.width= 10, }
+dollar.name <- str_count(mini.subtrain$name,"\\$") 
+dollar.description <- str_count(mini.subtrain$item_description,"\\$")
+pairs(log(mini.subtrain$price) ~ log(dollar.name +1) + dollar.description,pch = 19, col = "navy", cex = 0.2)
+```
+
+dollar.description looks like a good feature!
+
+```{r,fig.width= 8}
+ggplot(data = mini.subtrain, aes(y = log(price),x= dollar.description))+
+        geom_point(col = "navy", alpha = 0.4,size =0.9)+
+        facet_grid(. ~ factor(shipping))       
+
+```
+
+Let's add dollar.description into our data sets:
+
+```{r}
+mini.subtrain$dollar.description <- str_count(mini.subtrain$item_description,"\\$")
+subtrain$dollar.description <-  str_count(subtrain$item_description,"\\$")
+validation$dollar.description <- str_count(validation$item_description,"\\$")
+test$dollar.description <- str_count(test$item_description,"\\$")
 ```
 
 
