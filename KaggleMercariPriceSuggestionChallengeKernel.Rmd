@@ -152,6 +152,94 @@ These features alone do not seem to explain too much variability in the price. W
 
 ###Text mining and feature engineering
 
+#### Starting simple: special characters and length of the text features
+
+Let's try to understand if there is any relationship between the outcome and the length of various textual features:
+
+```{r,fig.width= 10, fig.height=10}
+length.name <- sapply(mini.subtrain$name,nchar) 
+length.category <- sapply(mini.subtrain$category_name,nchar)
+length.brand <- sapply(mini.subtrain$brand_name,nchar)
+length.description <- sapply(mini.subtrain$item_description,nchar)
+pairs(log(mini.subtrain$price) ~ length.name + length.category + length.brand + length.description,
+      pch = 19, col = "navy", cex = 0.2)
+```
+
+This pretty much looks like noise. Let's have a look at some special characters:
+
+```{r,fig.width=10}
+# Exclamation mark (!)
+library(stringr)
+excl.name <- str_count(mini.subtrain$name, "!")
+excl.category <- str_count(mini.subtrain$category_name,"!")
+excl.brand <- str_count(mini.subtrain$brand_name,"!")
+excl.description <- str_count(mini.subtrain$item_description,"!")
+pairs(log(mini.subtrain$price) ~ excl.name + excl.category + excl.brand + excl.description,
+      pch = 19, col = "purple", cex = 0.2)
+
+```
+
+It would be worth looking further into the ecxl.name and excl.description:
+
+```{r,fig.width=10}
+ggplot(data = mini.subtrain, aes(y = log(price),x= excl.name))+
+        geom_point(col = "purple", alpha = 0.4,size =0.9)+
+        facet_grid(factor(shipping) ~ factor(item_condition_id))
+```
+
+What happens in excl.name X item_condition_id interaction?
+
+
+```{r,fig.width=10}
+ggplot(data = mini.subtrain, aes(y = log(price),x= excl.name * item_condition_id))+
+        geom_point(col = "blue", alpha = 0.4,size =1)+
+        facet_grid( . ~ factor(shipping))
+```
+
+How about excl.description?
+
+
+```{r,fig.width=10}
+ggplot(data = mini.subtrain, aes(y = log(price),x= log(excl.description)))+
+        geom_point(col = "purple", alpha = 0.4,size =0.9)+
+        facet_grid(factor(shipping) ~ factor(item_condition_id))
+```
+
+What happens in excl.name X item_condition_id interaction?
+
+
+```{r,fig.width=10}
+ggplot(data = mini.subtrain, aes(y = log(price),x= log(excl.description) * item_condition_id))+
+        geom_point(col = "blue", alpha = 0.4,size =1)+
+        facet_grid( . ~ factor(shipping))
+```
+
+My intuition is the interaction with item condition makes these two new features somewhat stronger. 
+
+Let's add these two new features into the main data sets:
+
+```{r}
+mini.subtrain$log.excl.description <- log(excl.description + 1) * mini.subtrain$item_condition_id
+mini.subtrain$excl.name <- excl.name * mini.subtrain$item_condition_id
+
+subtrain$log.excl.description <- log(str_count(subtrain$item_description, "!") + 1) * subtrain$item_condition_id
+subtrain$excl.name <- str_count(subtrain$name, "!") * subtrain$item_condition_id
+
+validation$log.excl.description <- log(str_count(validation$item_description, "!") + 1) * validation$item_condition_id
+validation$excl.name <- str_count(validation$name, "!") * validation$item_condition_id
+
+test$log.excl.description <- log(str_count(test$item_description, "!") + 1) * test$item_condition_id
+test$excl.name <- str_count(test$name, "!") * test$item_condition_id
+```
+
+How about any characters excluding letters, commas or numbers?
+
+```{r}
+special.character <- sapply(mini.subtrain$item_description,function(x){
+return(nchar(str_trim(gsub("[a-zA-Z]|,|\\.|[0-9]","",x))})
+```
+
+
 ####Looking for 'free' or 'unpriced' items v.s. most expensive items
 
 Our first suspect would be there are certain keywords that are frequently associated with free items, which could be a good feature to predict these items:
