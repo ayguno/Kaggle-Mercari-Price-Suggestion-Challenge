@@ -242,6 +242,8 @@ ggplot(data = mini.subtrain, aes(y = log(price),x= log(special.character.descrip
         facet_grid(factor(shipping) ~ factor(item_condition_id))       
 
 ```
+The special character count in item description looks like just noise.
+
 
 ```{r,fig.width= 8}
 special.character.name <- sapply(mini.subtrain$name,function(x){
