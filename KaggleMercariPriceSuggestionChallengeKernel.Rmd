@@ -766,9 +766,9 @@ wordcloud(words = d$word, freq = d$freq, min.freq = 1,
 #Explore frequent terms and their associations
 #################################################
 
-# You can have a look at the frequent terms in the term-document matrix as follow. In the example below we want to find words that occur at least 50 times :
+# You can have a look at the frequent terms in the term-document matrix as follow. In the example below we want to find words that occur at least 500 times :
 
-findFreqTerms(dtm, lowfreq = 50)
+findFreqTerms(dtm, lowfreq = 500)
 
 # You can analyze the association between frequent terms (i.e., terms which correlate) using findAssocs() function. The R code below identifies which words are associated with “size” in the current text :
 
@@ -788,16 +788,72 @@ barplot(d[1:10,]$freq, las = 2, names.arg = d[1:10,]$word,
 
 Now let's look at the words in free and expensive items together:
 
-```{r, fig.width=12, fig.height=7}
-# Get top 50 most frequent words from each group 
+```{r}
+# Write a function to streamline text mininig
 
-sorted.table.free.100 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][40:90,]
-sorted.table.expensive.100 <-sorted.table.expensive[order(sorted.table.expensive$Freq,decreasing = TRUE),][40:90,]
+parse_text <- function(text){
+        docs <- Corpus(VectorSource(text))
+
+        ######################
+        # Text transformation
+        ######################
+        # Transformation is performed using tm_map() function to replace, 
+        # for example, special characters from the text.
+        
+        #Replacing “/”, “@” and “|” with space:
+        toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+        docs <- tm_map(docs, toSpace, "/")
+        docs <- tm_map(docs, toSpace, "@")
+        docs <- tm_map(docs, toSpace, "\\|")
+        
+        ####################
+        # Cleaning the text
+        ####################
+        
+        # Convert the text to lower case
+        docs <- tm_map(docs, content_transformer(tolower))
+        # Remove numbers
+        docs <- tm_map(docs, removeNumbers)
+        # Remove english common stopwords
+        docs <- tm_map(docs, removeWords, stopwords("english"))
+        # Remove your own stop word
+        # specify your stopwords as a character vector if needed
+        # docs <- tm_map(docs, removeWords, c("blabla1", "blabla2")) 
+        # Remove punctuations
+        docs <- tm_map(docs, removePunctuation)
+        # Eliminate extra white spaces
+        docs <- tm_map(docs, stripWhitespace)
+        # Text stemming
+        docs <- tm_map(docs, stemDocument)
+        
+        ################################
+        # Build a term-document matrix
+        ################################
+        
+        # Document matrix is a table containing the frequency of the words. Column names are words and row names are documents. The function TermDocumentMatrix() from text mining package can be used as follow :
+        
+        dtm <- TermDocumentMatrix(docs)
+        m <- as.matrix(dtm)
+        v <- sort(rowSums(m),decreasing=TRUE)
+        d <- data.frame(Word = as.character(names(v)),freq=v, Freq = (v/sum(v)) * 100)
+        
+        return(d)
+}
+```
+
+
+```{r, fig.width=12, fig.height=7}
+sorted.table.free <- parse_text(text = mini.subtrain$item_description[mini.subtrain$price == 0])
+sorted.table.expensive <- parse_text(text = subtrain$item_description[subtrain$price >= quantile(subtrain$price,0.99)])
+
+# Get top 100 most frequent words from each group 
+sorted.table.free.100 <- head(sorted.table.free,100)
+sorted.table.expensive.100 <- head(sorted.table.expensive,100)
 
 merged.table <- merge(sorted.table.free.100,sorted.table.expensive.100, by = c("Word"), all = TRUE,
                       suffixes = c("free","expensive"))
 row.names(merged.table) = merged.table$Word
-merged.table <- as.matrix(merged.table[,c(3,5)])
+merged.table <- as.matrix(merged.table[,which(grepl("^Freq",colnames(merged.table)))])
 #Replace NA's with zero
 merged.table[is.na(merged.table[,1]),1] <- 0
 merged.table[is.na(merged.table[,2]),2] <- 0
@@ -805,36 +861,90 @@ library(pheatmap)
 pheatmap(t(merged.table))
 ```
 
-There could be some potential to seperate price segments from each other by using the frequencies of different words. Let's perform a more extensive segmentation analysis.
+There could be some potential to seperate price segments from each other by using the frequencies of different words. Let's perform a more extensive segmentation analysis by writing a feature creation algorithm.
 
-```{r, eval=FALSE}
+####Feature engineering through price segmentation
+
+```{r}
+####################
 # Long operation! 
+####################
 
-# Divide the subtrain data into 10 quantiles after setting aside the free items
-subtrain.nonzero <- subtrain[subtrain$price != 0,]
-sorted.table.free.50 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][1:50,]
-merged.table <- sorted.table.free.50[,c(1,3)]
+# Divide the subtraining set into 19 log(price) quantiles + 1 "free" item bin
+# Totally 19 segments
+percentiles <- seq(0.05, 0.99, 0.05)
+merged.table <- parse_text(mini.subtrain$item_description[mini.subtrain$price == 0])[1:10,c(1,3)]
 colnames(merged.table)[2] <- paste0("price_percentile_0")
-# Totally 21 segments
-percentiles <- seq(0.05, 0.99, 0.1)
+mini.subtrain.nonzero <- mini.subtrain[mini.subtrain$price != 0,]
 for(i in seq_along(percentiles)){
-# For each segment, calculate word frequencies in the item description, get top 50 most frequent words
-        v <- subtrain.nonzero$item_description[subtrain.nonzero$price >= quantile(subtrain.nonzero$price,percentiles[i])]
-        write.table(v,"v.txt")
-        c1 <- scan("v.txt", what = "character", sep = "\n")
-        c2 <- tolower(c1)
-        c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
-        c3 <- c3[-(which(c3 == ""))]
-        freq <- table(c3)
-        freq1 <- sort(freq, decreasing = TRUE)
-        freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
-        sorted.table <- data.frame(Word = names(freq1),freq2)
-        sorted.table <- sorted.table[order(sorted.table$Freq, decreasing = TRUE),][1:50,]
+        # Perform text frequency mining within the first segment and hold the results
+        text <- mini.subtrain.nonzero$item_description[mini.subtrain.nonzero$price >= quantile(mini.subtrain.nonzero$price,percentiles[i])]
+        sorted.table <- parse_text(text)
         sorted.table <- sorted.table[,c(1,3)]
         colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
-# Merge into a data frame
-        merged.table <- merge(merged.table,sorted.table, by = c("Word"), all = TRUE)
-}
+        # # Find the words that are unique in the current set compared to previous set
+        # words.sorted.table <- as.character(sorted.table$Word)
+        # words.merged.table <- as.character(merged.table$Word)
+        # # find the sorted.table containing only the unique words
+        # unique.words <- words.sorted.table[!(words.sorted.table %in% words.merged.table)]
+        # sorted.table.unique <- sorted.table[(as.character(sorted.table$Word) %in% unique.words),]
+        # Get the Top50 of the sorted.table and merge with the merged.table to accumulate
+        merged.table <- merge(merged.table,head(sorted.table,50), by = "Word", all = TRUE)
+        # continue until all price segments finished
+} 
+
+merged.table <- merged.table[!is.na(merged.table$Word),]
+row.names(merged.table) = merged.table$Word
+merged.table <- dplyr::select(merged.table, -Word)
+merged.table <- as.matrix(merged.table)
+
+#Replace NA's with zero
+for (i in 1:20){merged.table[is.na(merged.table[,i]),i] <- 0}
+#Save for future use
+saveRDS(merged.table,"merged_table.rds")
+# easy load
+merged.table <- readRDS("merged_table.rds")
+
+```
+
+```{r,fig.width=10, fig.height= 7}
+# easy load
+merged.table <- readRDS("merged_table.rds")
+# Cluster into a heatmap
+pheatmap(t(merged.table),scale = "row", cluster_rows = FALSE)
+```
+
+
+
+
+```{r, eval=FALSE}
+# # Long operation! 
+# 
+# # Divide the subtrain data into 10 quantiles after setting aside the free items
+# subtrain.nonzero <- subtrain[subtrain$price != 0,]
+# sorted.table.free.50 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][1:50,]
+# merged.table <- sorted.table.free.50[,c(1,3)]
+# colnames(merged.table)[2] <- paste0("price_percentile_0")
+# # Totally 21 segments
+# percentiles <- seq(0.05, 0.99, 0.1)
+# for(i in seq_along(percentiles)){
+# # For each segment, calculate word frequencies in the item description, get top 50 most frequent words
+#         v <- subtrain.nonzero$item_description[subtrain.nonzero$price >= quantile(subtrain.nonzero$price,percentiles[i])]
+#         write.table(v,"v.txt")
+#         c1 <- scan("v.txt", what = "character", sep = "\n")
+#         c2 <- tolower(c1)
+#         c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
+#         c3 <- c3[-(which(c3 == ""))]
+#         freq <- table(c3)
+#         freq1 <- sort(freq, decreasing = TRUE)
+#         freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
+#         sorted.table <- data.frame(Word = names(freq1),freq2)
+#         sorted.table <- sorted.table[order(sorted.table$Freq, decreasing = TRUE),][1:50,]
+#         sorted.table <- sorted.table[,c(1,3)]
+#         colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
+# # Merge into a data frame
+#         merged.table <- merge(merged.table,sorted.table, by = c("Word"), all = TRUE)
+# }
 ```
 
 ```{r, fig.width=10, fig.height= 7}
