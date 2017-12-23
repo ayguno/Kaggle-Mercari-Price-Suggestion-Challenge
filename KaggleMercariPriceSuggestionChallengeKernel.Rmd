@@ -865,7 +865,7 @@ There could be some potential to seperate price segments from each other by usin
 
 ####Feature engineering through price segmentation
 
-```{r}
+```{r,eval=FALSE}
 ####################
 # Long operation! 
 ####################
@@ -873,27 +873,25 @@ There could be some potential to seperate price segments from each other by usin
 # Divide the subtraining set into 19 log(price) quantiles + 1 "free" item bin
 # Totally 19 segments
 percentiles <- seq(0.05, 0.99, 0.05)
-merged.table <- parse_text(mini.subtrain$item_description[mini.subtrain$price == 0])[1:10,c(1,3)]
-colnames(merged.table)[2] <- paste0("price_percentile_0")
+merged.table <- parse_text(mini.subtrain$item_description[mini.subtrain$price == 0])[,c(1,3)]
+colnames(merged.table.zero)[2] <- paste0("price_percentile_0")
 mini.subtrain.nonzero <- mini.subtrain[mini.subtrain$price != 0,]
+
 for(i in seq_along(percentiles)){
         # Perform text frequency mining within the first segment and hold the results
-        text <- mini.subtrain.nonzero$item_description[mini.subtrain.nonzero$price >= quantile(mini.subtrain.nonzero$price,percentiles[i])]
+        text <- mini.subtrain.nonzero$item_description[log(mini.subtrain.nonzero$price) >= quantile(log(mini.subtrain.nonzero$price),percentiles[i])]
         sorted.table <- parse_text(text)
         sorted.table <- sorted.table[,c(1,3)]
         colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
-        # # Find the words that are unique in the current set compared to previous set
-        # words.sorted.table <- as.character(sorted.table$Word)
-        # words.merged.table <- as.character(merged.table$Word)
-        # # find the sorted.table containing only the unique words
-        # unique.words <- words.sorted.table[!(words.sorted.table %in% words.merged.table)]
-        # sorted.table.unique <- sorted.table[(as.character(sorted.table$Word) %in% unique.words),]
-        # Get the Top50 of the sorted.table and merge with the merged.table to accumulate
-        merged.table <- merge(merged.table,head(sorted.table,50), by = "Word", all = TRUE)
-        # continue until all price segments finished
+        merged.table <- merge(merged.table,sorted.table, by = "Word", all = TRUE)
+        # continue until all price segments are finished
 } 
 
+
 merged.table <- merged.table[!is.na(merged.table$Word),]
+merged.table <- merged.table[merged.table$Word !="",]
+
+
 row.names(merged.table) = merged.table$Word
 merged.table <- dplyr::select(merged.table, -Word)
 merged.table <- as.matrix(merged.table)
@@ -904,6 +902,11 @@ for (i in 1:20){merged.table[is.na(merged.table[,i]),i] <- 0}
 saveRDS(merged.table,"merged_table.rds")
 # easy load
 merged.table <- readRDS("merged_table.rds")
+
+t.merged.table <- t(merged.table)
+# remove near-zero features
+nzv <- caret::nearZeroVar(t.merged.table, saveMetrics = TRUE)
+
 
 ```
 
