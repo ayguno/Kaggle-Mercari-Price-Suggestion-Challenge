@@ -1057,63 +1057,325 @@ ggplot(mini.subtrain,aes(y = log(price +1), x = factor(michael.test)))+
 michael in brandname looks like a useful feature. Let's add into our data sets:
 
 ```{r}
-mini.subtrain$michael.brand <- word.feature.engineer(mini.subtrain$brand_name,"michael")
-subtrain$michael.brand <- word.feature.engineer(subtrain$brand_name,"michael")
-validation$michael.brand <- word.feature.engineer(validation$brand_name,"michael")
-test$michael.brand <- word.feature.engineer(test$brand_name,"michael")
+# Write a function to streamline feature engineering as binary variable
+word.feature.engineer.binary <- function(text.vector,pattern){
+        #returns a vector that checks a given pattern in each of the element of the text vector  
+        text.vector <- tolower(text.vector)
+        binary.vector <- sapply(text.vector,function(x){
+                return(ifelse(grepl(pattern,x),1,0))
+        })
+        return(binary.vector)
+} 
 ```
 
+
+
+```{r,eval=FALSE} 
+# Long operation!
+mini.subtrain$michael.brand <- word.feature.engineer.binary(mini.subtrain$brand_name,"michael")
+subtrain$michael.brand <- word.feature.engineer.binary(subtrain$brand_name,"michael")
+validation$michael.brand <- word.feature.engineer.binary(validation$brand_name,"michael")
+test$michael.brand <- word.feature.engineer.binary(test$brand_name,"michael")
+```
+
+At this point it is necessary to save engineered data sets for future easy loading:
+
+```{r}
+saveRDS(mini.subtrain,"mini_subtrain.rds")
+saveRDS(subtrain,"subtrain.rds")
+saveRDS(validation,"validation.rds")
+saveRDS(test,"test.rds")
+```
 
 ####Feature engineering in category name through price segmentation
 
+Let;s now look at the category names
 
+```{r,eval=FALSE}
+####################
+# Long operation! 
+####################
 
+# Divide the subtraining set into 19 log(price) quantiles + 1 "free" item bin
+# Totally 19 segments
+percentiles <- seq(0.05, 0.99, 0.05)
+merged.table <- parse_text(mini.subtrain$category_name[mini.subtrain$price == 0])[,c(1,3)]
+colnames(merged.table)[2] <- paste0("price_percentile_0")
+merged.table <- head(merged.table,50)
 
-```{r, eval=FALSE}
-# # Long operation! 
-# 
-# # Divide the subtrain data into 10 quantiles after setting aside the free items
-# subtrain.nonzero <- subtrain[subtrain$price != 0,]
-# sorted.table.free.50 <- sorted.table.free[order(sorted.table.free$Freq, decreasing = TRUE),][1:50,]
-# merged.table <- sorted.table.free.50[,c(1,3)]
-# colnames(merged.table)[2] <- paste0("price_percentile_0")
-# # Totally 21 segments
-# percentiles <- seq(0.05, 0.99, 0.1)
-# for(i in seq_along(percentiles)){
-# # For each segment, calculate word frequencies in the item description, get top 50 most frequent words
-#         v <- subtrain.nonzero$item_description[subtrain.nonzero$price >= quantile(subtrain.nonzero$price,percentiles[i])]
-#         write.table(v,"v.txt")
-#         c1 <- scan("v.txt", what = "character", sep = "\n")
-#         c2 <- tolower(c1)
-#         c3 <- unlist(strsplit(c2, "\\W")) # \\W regex for non-word character
-#         c3 <- c3[-(which(c3 == ""))]
-#         freq <- table(c3)
-#         freq1 <- sort(freq, decreasing = TRUE)
-#         freq2 <- (freq1/sum(freq1))*100 # % frequency of the word amonst all words in the section
-#         sorted.table <- data.frame(Word = names(freq1),freq2)
-#         sorted.table <- sorted.table[order(sorted.table$Freq, decreasing = TRUE),][1:50,]
-#         sorted.table <- sorted.table[,c(1,3)]
-#         colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
-# # Merge into a data frame
-#         merged.table <- merge(merged.table,sorted.table, by = c("Word"), all = TRUE)
-# }
-```
+mini.subtrain.nonzero <- mini.subtrain[mini.subtrain$price != 0,]
 
-```{r, fig.width=10, fig.height= 7}
-#Save for future use
-# saveRDS(merged.table,"merged_table.rds")
-# easy load
-merged.table <- readRDS("merged_table.rds")
+for(i in seq_along(percentiles)){
+        # Perform text frequency mining within the first segment and hold the results
+        text <- mini.subtrain.nonzero$category_name[log(mini.subtrain.nonzero$price) >= quantile(log(mini.subtrain.nonzero$price),percentiles[i])]
+        sorted.table <- parse_text(text)
+        sorted.table <- sorted.table[,c(1,3)]
+        colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
+        sorted.table <- head(sorted.table,50)
+        merged.table <- merge(merged.table,sorted.table, by = "Word", all = TRUE)
+        # continue until all price segments are finished
+} 
+
 
 merged.table <- merged.table[!is.na(merged.table$Word),]
+merged.table <- unique.data.frame(merged.table)
 
 row.names(merged.table) = merged.table$Word
 merged.table <- dplyr::select(merged.table, -Word)
 merged.table <- as.matrix(merged.table)
 
 #Replace NA's with zero
-for (i in 1:11){merged.table[is.na(merged.table[,i]),i] <- 0}
+for (i in 1:20){merged.table[is.na(merged.table[,i]),i] <- 0}
+#Save for future use
+saveRDS(merged.table,"merged_table.rds")
+```
 
-# Cluster into a heatmap
-pheatmap(t(merged.table),scale = "row", cluster_rows = FALSE)
+```{r,fig.width=10, fig.height= 7}
+# easy load
+merged.table <- readRDS("merged_table.rds")
+pheatmap(t(merged.table), cluster_rows = F, scale = "row")
+```
+
+Applying a slighly different version of the algorithm:
+
+```{r,eval=FALSE}
+####################
+# Long operation! 
+####################
+
+# Divide the subtraining set into 19 log(price) quantiles + 1 "free" item bin
+# Totally 19 segments
+percentiles <- seq(0.05, 0.99, 0.05)
+merged.table <- parse_text(mini.subtrain$category_name[mini.subtrain$price == 0])[,c(1,3)]
+colnames(merged.table)[2] <- paste0("price_percentile_0")
+merged.table <- rbind(head(merged.table,10),tail(merged.table,10))
+
+mini.subtrain.nonzero <- mini.subtrain[mini.subtrain$price != 0,]
+
+for(i in seq_along(percentiles)){
+        # Perform text frequency mining within the first segment and hold the results
+        text <- mini.subtrain.nonzero$category_name[log(mini.subtrain.nonzero$price) >= quantile(log(mini.subtrain.nonzero$price),percentiles[i])]
+        sorted.table <- parse_text(text)
+        sorted.table <- sorted.table[,c(1,3)]
+        colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
+        sorted.table <- rbind(head(sorted.table,10),tail(sorted.table,10))
+        merged.table <- merge(merged.table,sorted.table, by = "Word", all = TRUE)
+        # continue until all price segments are finished
+} 
+
+
+merged.table <- merged.table[!is.na(merged.table$Word),]
+merged.table <- unique.data.frame(merged.table)
+
+row.names(merged.table) = merged.table$Word
+merged.table <- dplyr::select(merged.table, -Word)
+merged.table <- as.matrix(merged.table)
+
+#Replace NA's with zero
+for (i in 1:20){merged.table[is.na(merged.table[,i]),i] <- 0}
+#Save for future use
+saveRDS(merged.table,"merged_table.rds")
+```
+
+```{r,fig.width=10, fig.height= 7}
+# easy load
+merged.table <- readRDS("merged_table.rds")
+pheatmap(t(merged.table), cluster_rows = FALSE, scale = "row")
+```
+
+The category name also looks pretty much noise when explored in this way.
+
+####Feature engineering in name through price segmentation 
+
+```{r,eval=FALSE}
+####################
+# Long operation! 
+####################
+
+# Divide the subtraining set into 19 log(price) quantiles + 1 "free" item bin
+# Totally 19 segments
+percentiles <- seq(0.05, 0.99, 0.05)
+merged.table <- parse_text(mini.subtrain$name[mini.subtrain$price == 0])[,c(1,3)]
+colnames(merged.table)[2] <- paste0("price_percentile_0")
+merged.table <- rbind(head(merged.table,10),tail(merged.table,10))
+
+mini.subtrain.nonzero <- mini.subtrain[mini.subtrain$price != 0,]
+
+for(i in seq_along(percentiles)){
+        # Perform text frequency mining within the first segment and hold the results
+        text <- mini.subtrain.nonzero$name[log(mini.subtrain.nonzero$price) >= quantile(log(mini.subtrain.nonzero$price),percentiles[i])]
+        sorted.table <- parse_text(text)
+        sorted.table <- sorted.table[,c(1,3)]
+        colnames(sorted.table)[2] <- paste0("price_percentile_%",percentiles[i]*100)
+        sorted.table <- rbind(head(sorted.table,10),tail(sorted.table,10))
+        merged.table <- merge(merged.table,sorted.table, by = "Word", all = TRUE)
+        # continue until all price segments are finished
+} 
+
+
+merged.table <- merged.table[!is.na(merged.table$Word),]
+merged.table <- unique.data.frame(merged.table)
+
+row.names(merged.table) = merged.table$Word
+merged.table <- dplyr::select(merged.table, -Word)
+merged.table <- as.matrix(merged.table)
+
+#Replace NA's with zero
+for (i in 1:20){merged.table[is.na(merged.table[,i]),i] <- 0}
+#Save for future use
+saveRDS(merged.table,"merged_table.rds")
+```
+
+```{r,fig.width=10, fig.height= 7}
+# easy load
+merged.table <- readRDS("merged_table.rds")
+pheatmap(t(merged.table), cluster_rows = FALSE, scale = "row")
+```
+
+```{r}
+pink.test <- word.feature.engineer.binary(mini.subtrain$name,"pink")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(pink.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+size.test <- word.feature.engineer.binary(mini.subtrain$name,"size")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(size.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+jordan.test <- word.feature.engineer.binary(mini.subtrain$name,"jordan")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(jordan.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+shirt.test <- word.feature.engineer.binary(mini.subtrain$name,"shirt")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(shirt.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+michael.test <- word.feature.engineer.binary(mini.subtrain$name,"michael")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(michael.test)))+
+        geom_boxplot(fill = c("navy","red"))
+cor(michael.test,mini.subtrain$michael.brand)
+```
+
+```{r}
+iphon.test <- word.feature.engineer.binary(mini.subtrain$name,"iphon")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(iphon.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+bundl.test <- word.feature.engineer.binary(mini.subtrain$name,"bundl")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(bundl.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+Let's add 3 of these features into our data sets as well:
+
+```{r, eval=FALSE}
+# Long operation!
+mini.subtrain$jordan.name <- word.feature.engineer.binary(mini.subtrain$name,"jordan")
+subtrain$jordan.name <- word.feature.engineer.binary(subtrain$name,"jordan")
+validation$jordan.name <- word.feature.engineer.binary(validation$name,"jordan")
+test$jordan.name <- word.feature.engineer.binary(test$brand,"jordan")
+
+mini.subtrain$iphon.name <- word.feature.engineer.binary(mini.subtrain$name,"iphon")
+subtrain$iphon.name <- word.feature.engineer.binary(subtrain$name,"iphon")
+validation$iphon.name <- word.feature.engineer.binary(validation$name,"iphon")
+test$iphon.name <- word.feature.engineer.binary(test$brand,"iphon")
+
+mini.subtrain$bundl.name <- word.feature.engineer.binary(mini.subtrain$name,"bundl")
+subtrain$bundl.name <- word.feature.engineer.binary(subtrain$name,"bundl")
+validation$bundl.name <- word.feature.engineer.binary(validation$name,"bundl")
+test$bundl.name <- word.feature.engineer.binary(test$brand,"bundl")
+
+#At this point it is necessary to save engineered data sets again for future easy loading:
+saveRDS(mini.subtrain,"mini_subtrain.rds")
+saveRDS(subtrain,"subtrain.rds")
+saveRDS(validation,"validation.rds")
+saveRDS(test,"test.rds")
+```
+
+#### Looking at [rm] names and descriptions
+
+In the data description it was mentioned that this string was used to replce whereever the price was mentioned in the item description or name. Let's see if the occurance of this placeholder can explain some variance in price:
+
+```{r}
+placeholder.test <- word.feature.engineer.binary(mini.subtrain$name,"\\[rm]")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(placeholder.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+placeholder.test <- word.feature.engineer.binary(mini.subtrain$item_description,"\\[rm]")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(placeholder.test)))+
+        geom_boxplot(fill = c("navy","red"))
+```
+
+```{r}
+placeholder.test <- word.feature.engineer(mini.subtrain$name,"\\[rm]")
+ggplot(mini.subtrain,aes(y = log(price +1), x = factor(placeholder.test)))+
+        geom_boxplot(fill = c("navy","red","lightgreen"))
+```
+
+This doesn't seem to be a good feature.
+
+#### Capital letters
+
+This is something that we haven't looked yet. Let's see if the count the occurance of capital letters that could explain anything in the price:
+
+```{r}
+capital.letter.counter <- function(text.vector){
+        # Return the occurance of capital letters in the given text vector
+       capital.letter.count <- sapply(text.vector,function(x){
+        return(length(unlist(str_extract_all(x,"[A-Z]"))))})
+        
+}
+
+capital.letter.test <- capital.letter.counter(mini.subtrain$item_description)
+plot(y =log(mini.subtrain$price), x = log(capital.letter.test),pch = 19, col = "navy", cex = 0.2)
+```
+
+This pretty much looks like noise.
+
+```{r}
+capital.letter.test <- capital.letter.counter(mini.subtrain$name)
+plot(y =log(mini.subtrain$price), x = log(capital.letter.test),pch = 19, col = "navy", cex = 0.2)
+```
+
+This pretty much looks like noise.
+
+```{r}
+capital.letter.test <- capital.letter.counter(mini.subtrain$brand_name)
+plot(y =log(mini.subtrain$price), x = log(capital.letter.test),pch = 19, col = "navy", cex = 0.2)
+```
+
+Capital letter count in brand_name could have some trend.
+
+```{r}
+capital.letter.test <- capital.letter.counter(mini.subtrain$category_name)
+plot(y =log(mini.subtrain$price), x = log(capital.letter.test),pch = 19, col = "navy", cex = 0.2)
+```
+
+This pretty much looks like noise.
+
+Let's add the capital letter count in the brand name as a new feature to our data sets:
+
+```{r, eval=FALSE}
+# Long operation!
+mini.subtrain$cap.letter.brand <- capital.letter.counter(mini.subtrain$brand_name)
+subtrain$cap.letter.brand <- capital.letter.counter(subtrain$brand_name)
+validation$cap.letter.brand <- capital.letter.counter(valiadtion$brand_name)
+test$cap.letter.brand <- capital.letter.counter(test$brand_name)
+
+#At this point it is necessary to save engineered data sets again for future easy loading:
+saveRDS(mini.subtrain,"mini_subtrain.rds")
+saveRDS(subtrain,"subtrain.rds")
+saveRDS(validation,"validation.rds")
+saveRDS(test,"test.rds")
 ```
