@@ -1355,7 +1355,7 @@ capital.letter.test <- capital.letter.counter(mini.subtrain$brand_name)
 plot(y =log(mini.subtrain$price), x = log(capital.letter.test),pch = 19, col = "navy", cex = 0.2)
 ```
 
-Capital letter count in brand_name could have some trend.
+Capital letter count in brand_name might have some trend.
 
 ```{r}
 capital.letter.test <- capital.letter.counter(mini.subtrain$category_name)
@@ -1370,7 +1370,7 @@ Let's add the capital letter count in the brand name as a new feature to our dat
 # Long operation!
 mini.subtrain$cap.letter.brand <- capital.letter.counter(mini.subtrain$brand_name)
 subtrain$cap.letter.brand <- capital.letter.counter(subtrain$brand_name)
-validation$cap.letter.brand <- capital.letter.counter(valiadtion$brand_name)
+validation$cap.letter.brand <- capital.letter.counter(validation$brand_name)
 test$cap.letter.brand <- capital.letter.counter(test$brand_name)
 
 #At this point it is necessary to save engineered data sets again for future easy loading:
@@ -1379,3 +1379,183 @@ saveRDS(subtrain,"subtrain.rds")
 saveRDS(validation,"validation.rds")
 saveRDS(test,"test.rds")
 ```
+#### Locking down the data sets
+
+At this point we will finalize feature selection and end up with the final data sets to use them for training of the models and validation.
+
+First, we need to remove string features from data sets:
+
+```{r}
+mini.subtrain <-dplyr::select(mini.subtrain, -name, -item_description,-category_name, -brand_name)
+subtrain <-dplyr::select(subtrain, -name, -item_description,-category_name, -brand_name)
+validation <-dplyr::select(validation, -name, -item_description,-category_name, -brand_name)
+test <-dplyr::select(test, -name, -item_description,-category_name, -brand_name)
+```
+
+Then, let's look at the correlation between the remaining features:
+
+```{r, fig.width=10,fig.height=10}
+library(corrplot)
+corrplot(cor(mini.subtrain), method = c("shade"), bg = "gray", addgrid.col = "gray")
+```
+
+We don't notice strong correlation between the remaining features. Therefore, we will remain with the final features and lock down the data sets at this point:
+
+```{r,eval=FALSE}
+#At this point it is necessary to save engineered data sets again for future easy loading:
+saveRDS(mini.subtrain,"mini_subtrain_locked.rds")
+saveRDS(subtrain,"subtrain_locked.rds")
+saveRDS(validation,"validation_locked.rds")
+saveRDS(test,"test_locked.rds")
+```
+
+Reload the locked data sets for training our models:
+
+```{r}
+mini.subtrain<- readRDS("mini_subtrain_locked.rds")
+subtrain <- readRDS("subtrain_locked.rds")
+validation <- readRDS("validation_locked.rds")
+test <- readRDS("test_locked.rds")
+```
+
+We will fit our models using the log(price+1) as the response and will convert back when making our predictions. Let's make this conversion in the data sets:
+
+```{r}
+library(dplyr)
+mini.subtrain<- mini.subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
+subtrain <- subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
+validation <- validation %>% mutate(log.price = log(price +1)) %>% select(-price)
+```
+
+Have a last check at missing data before we move to modeling:
+
+```{r}
+apply(is.na(subtrain),2, sum)
+apply(is.na(validation),2, sum)
+apply(is.na(test),2, sum)
+```
+
+Thankfully, the test set is complete. We have very few missing cases in subtrain and validation sets. We will remove them since we have fairly large data sets to train our models.
+
+```{r}
+subtrain <- subtrain[complete.cases(subtrain),]
+validation <- subtrain[complete.cases(validation),]
+
+```
+
+
+# Training predictive models for estimating item price
+
+Let's start with training stand alone regression models to estimate the price. Our first approach will be training models using the subtrain set, and trying to estimate our cross-validated error. We will then estimate the error in the validation test to go back and fine tune the models as necessary.
+
+## Lasso regression
+
+We have a long data set, significantly more observations than the number of predictors. Lasso would be a good place to start to see how much we can perform by using a linear model.
+
+```{r}
+
+library(glmnet)
+
+# We create a matrix of predictors
+x.training = model.matrix(log.price ~ .-1, data = subtrain)
+x.validation = model.matrix( ~ .-1, data = validation[,-27])
+
+y = subtrain$log.price
+
+# Fit lasso regression to training data
+fit.lasso <- glmnet(x.training,y, family = "gaussian") #family = "gaussian" for regression
+plot(fit.lasso, xvar = "lambda", label = TRUE)
+plot(fit.lasso, xvar = "dev", label = TRUE)
+
+```
+
+###Choosing the optimal lambda by using cross-validation
+
+It is best to choose the optimal lambda using cross-validation, with the aim of minimizing **mean squared error:**:
+
+```{r,cache=TRUE}
+#cv.lasso will be the list containing the coefficients and information of our optimal model fit using cross-validation (10 fold by default)
+set.seed(123)
+cv.lasso <- cv.glmnet(x.training,y, family = "gaussian")
+plot(cv.lasso)
+```
+
+Notice that what we are doing here is actually computationally intense.
+
+1. We get very fine grids of lambda values.
+2. Using each lambda value, we perform 10-fold cross validation:
+
+- We fit a model using the Sum of Squares convex optimization and obtain cross-validated error (average of 10 model fits)
+
+3. We continue steps 1 and 2 for all fine grids of lambda values in the range.
+
+The two vertical lines are produced in the plot, the left one marks the model with min error and the middle one shows a little more restricted model 1 standard error away from the minimum error.
+
+**When choosing the optimal model, we might prefer to get the more restricted model that is indicated by the second vertical line, which is default in glmnet package, due to the 1 standard error conversion.**
+
+The final (optimal) model coefficients we obtained by cross-validation and the non-zero features remaining:
+
+```{r}
+head(coef(cv.lasso))
+```
+
+Note that we only have few features remaining in the linear lasso model. It is nice to see that out of the 5 features remaining, 3 of them are those we engineered from the data set!
+
+###Making predictions using the best lasso model fit
+
+Let's first start with the subtrain set:
+
+```{r, fig.align='center', fig.width=6, fig.height=5}
+pred <- predict(cv.lasso, newx = x.training)
+
+#Let's write a function to streamline our analyses of the various models we will train:
+
+log.rmse.training <- function(pred,observed,method){
+
+#pred: vector of predicted values (in log scale)
+#observed: vector of observed values (in log scale)
+#method: the method name used to built the predictive model        
+        
+#Calculating the root mean squared error:
+rmse.training = sqrt(mean((pred - observed)^2))
+
+#Calculating the Pearson correlation:
+cor.training = cor(observed,pred)
+
+plot(x = pred, y = observed, cex = 0.5, col = "navy", pch = 19, 
+     main = method,xlab = "Log(Predicted)", ylab = "Log(Observed)")
+text(x = max(pred), y = min(observed)+0.7,
+     labels = paste0("RMSE: ",rmse.training))
+text(x = max(pred), y = min(observed)+0.2,
+     labels = paste0("Pr.cor: ",cor.training))
+}
+
+log.rmse.training(pred = pred, observed = subtrain$log.price, method = "Lasso")
+```
+
+It is clear that the linear model does not explain the prices well. As we expected, we need to pursue different approaches to build our model.
+
+## Support vector machines with a radial kernel with cross validation
+
+```{r,eval=FALSE}
+# Long operation in a standard computer!
+library(caret)
+set.seed(1235432)
+SVM <- train(log.price ~ ., data = subtrain,method = "svmRadial", trControl = trainControl(method = "cv", number = 10), verbose = FALSE) 
+#save the model for future use
+saveRDS(SVM,"SVM.rds")
+```
+
+```{r}
+# reload the saved model
+SVM <- readRDS("SVM.rds")
+log.rmse.training(pred = predict(SVM,subtrain),observed = training.processed$Log.SalePrice,method = " Support Vector Machines")
+```
+
+
+
+
+
+
+
+
