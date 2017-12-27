@@ -1537,13 +1537,29 @@ It is clear that the linear model does not explain the prices well. As we expect
 
 ## Support vector machines with a radial kernel with cross validation
 
-```{r,eval=FALSE}
+We will use parallel processing since training models on the large data sets is computationally intense:
+
+```{r}
 # Long operation in a standard computer!
 library(caret)
+library(parallel);library(doParallel)
+
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # LEave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
 set.seed(1235432)
-SVM <- train(log.price ~ ., data = subtrain,method = "svmRadial", trControl = trainControl(method = "cv", number = 10), verbose = FALSE) 
+SVM <- train(log.price ~ ., data = subtrain,method = "svmRadial", trControl = fitControl, verbose = FALSE) 
 #save the model for future use
 saveRDS(SVM,"SVM.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
 ```
 
 ```{r}
@@ -1551,6 +1567,9 @@ saveRDS(SVM,"SVM.rds")
 SVM <- readRDS("SVM.rds")
 log.rmse.training(pred = predict(SVM,subtrain),observed = training.processed$Log.SalePrice,method = " Support Vector Machines")
 ```
+
+
+
 
 
 
