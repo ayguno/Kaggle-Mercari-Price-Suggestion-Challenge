@@ -1537,23 +1537,39 @@ It is clear that the linear model does not explain the prices well. As we expect
 
 ## Support vector machines with a radial kernel with cross validation
 
-We will use parallel processing since training models on the large data sets is computationally intense:
+We will use parallel processing since training models on the large data sets is computationally intense. In the initial attempts I tried to train the entire subtraining set, but this is not feasible with a standard computer with limited processing power.
+
+Instead, I recall training models with modestly size data sets (~10K observations) earlier. In this case, I will get a similar size new mini.training set to train the algorithms. This will increase bias, but there is not much else we can do at the moment. In the future attempts, it is a good idea to learn how to use clusters and big data computing.
 
 ```{r}
+
+
+library(caret)
+# Get the mini.training set
+set.seed(12345)
+mini.trainID <- createDataPartition(y = subtrain$log.price,p = 0.0148, list = FALSE) # Close to 11K observations
+
+mini.train <- subtrain[mini.trainID,] # A new training set close to 11K observations
+saveRDS(mini.train,"mini_train.rds") #Save for easy loading in future
+```
+
+```{r}
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+mini.train <- readRDS("mini_train.rds")
+
 # Long operation in a standard computer!
 library(caret)
 library(parallel);library(doParallel)
-
 # Configure parallel computation
-cluster <- makeCluster(detectCores() - 1) # LEave one core for the OS
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
 registerDoParallel(cluster)
 
 # Configure trainControl object
 fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
 
 #Train the model
-set.seed(1235432)
-SVM <- train(log.price ~ ., data = subtrain,method = "svmRadial", trControl = fitControl, verbose = FALSE) 
+set.seed(12345)
+SVM <- train(log.price ~ ., data = mini.train,method = "svmRadial", trControl = fitControl, verbose = FALSE) 
 #save the model for future use
 saveRDS(SVM,"SVM.rds")
 
@@ -1561,6 +1577,8 @@ saveRDS(SVM,"SVM.rds")
 stopCluster(cluster)
 registerDoSEQ()
 ```
+
+
 
 ```{r}
 # reload the saved model
