@@ -1578,21 +1578,151 @@ stopCluster(cluster)
 registerDoSEQ()
 ```
 
-
+This runs in quite a reasonable time. Let's check how well the SVM model is doing:
 
 ```{r}
 # reload the saved model
 SVM <- readRDS("SVM.rds")
-log.rmse.training(pred = predict(SVM,subtrain),observed = training.processed$Log.SalePrice,method = " Support Vector Machines")
+log.rmse.training(pred = predict(SVM,mini.train),observed = mini.train$log.price,method = " Support Vector Machines")
 ```
 
 
+A little better than lasso, let's try other algorithms in a similar way:
 
 
+## Training Random Forest algorithm with cross validation
+
+```{r}
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+mini.train <- readRDS("mini_train.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+RF <- train(log.price ~ ., data = mini.train,method = "rf", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(RF,"RF.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+This took about 6 minites, which is also reasonable.
+
+```{r}
+# reload the saved model
+RF <- readRDS("RF.rds")
+log.rmse.training(pred = predict(RF,mini.train),observed = mini.train$log.price,method = "Random Forest")
+```
+
+Interestingly, random forest has not performed as good as the SVM.
 
 
+## Training Gradient boosting algorithm with cross validation
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+mini.train <- readRDS("mini_train.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+GBM <- train(log.price ~ ., data = mini.train,method = "gbm", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(GBM,"GBM.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+This only took 19.37832 secs.
+
+```{r}
+# reload the saved model
+GBM <- readRDS("GBM.rds")
+log.rmse.training(pred = predict(GBM,mini.train),observed = mini.train$log.price,method = "Gradient Boosting")
+```
+
+Similar to random forest!
+
+###Variable importance in Gradient Boosting:
+
+```{r}
+dotPlot(varImp(GBM))
+```
+
+## Extreme gradient boosting with cross validation
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+mini.train <- readRDS("mini_train.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+xGBM <- train(log.price ~ ., data = mini.train,method = "xgbLinear", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(xGBM,"xGBM.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+This takes about 1.501966 mins.
+
+```{r}
+# reload the saved model
+xGBM <- readRDS("xGBM.rds")
+log.rmse.training(pred = predict(xGBM,mini.train),observed = mini.train$log.price,method = "Extreme gradient Boosting")
+```
+
+xGBM is so far the best model we obtained, but we recall that it can also overfit quite a bit!
+
+###Variable importance in Gradient Boosting:
+
+```{r}
+dotPlot(varImp(xGBM))
+```
 
 
+Next, the question is: can we improve the model performance by using slightly larger training set?
 
-
+Since we have enough data remaining in the subtrain, we can try doubling the amount of the data in a new trainign set and re-train all the 4 models we tested. We can test whether this will bring any improvement.
 
