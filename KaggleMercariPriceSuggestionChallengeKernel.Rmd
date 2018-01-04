@@ -22,7 +22,7 @@ knitr::opts_chunk$set(results = "markup", fig.align = "center",
 
 # Introduction and summary
 
-
+Here
 
 # Loading the data
 
