@@ -1625,7 +1625,7 @@ RF <- readRDS("RF.rds")
 log.rmse.training(pred = predict(RF,mini.train),observed = mini.train$log.price,method = "Random Forest")
 ```
 
-Interestingly, random forest has not performed as good as the SVM.
+Interestingly, random forest did not perform as good as the SVM.
 
 
 ## Training Gradient boosting algorithm with cross validation
@@ -1725,4 +1725,82 @@ dotPlot(varImp(xGBM))
 Next, the question is: can we improve the model performance by using slightly larger training set?
 
 Since we have enough data remaining in the subtrain, we can try doubling the amount of the data in a new trainign set and re-train all the 4 models we tested. We can test whether this will bring any improvement.
+
+## Model Ensemble approach 
+
+Let's try to stack the predictions of these individual models to train additional algorithms in a seperate set that we will draw from the subtraining set.
+
+```{r}
+library(caret)
+# Get the mini.training set Ids we used to train above models
+set.seed(12345)
+mini.trainID <- createDataPartition(y = subtrain$log.price,p = 0.0148, list = FALSE) # Close to 11K observations
+
+set.seed(12345)
+# Exclude these IDs and get a new data set with ~2 times as large
+new.mini.train <- createDataPartition(y = subtrain$log.price[-mini.trainID],p = 0.029, list = FALSE) # A new training set close to 108K observations
+
+#Get this new larger set
+new.large.train <- subtrain[new.mini.train,]
+
+# Read back the saved models:
+xGBM <- readRDS("xGBM.rds")
+GBM <- readRDS("GBM.rds")
+SVM <- readRDS("SVM.rds")
+RF <- readRDS("RF.rds")
+
+# Let's first see how well these models are doing in this independent and larger data set:
+par(mfrow = c(2,2))
+log.rmse.training(pred = predict(xGBM,new.large.train),observed = new.large.train$log.price,method = "Extreme gradient Boosting")
+log.rmse.training(pred = predict(GBM,new.large.train),observed = new.large.train$log.price,method = "Gradient Boosting")
+log.rmse.training(pred = predict(RF,new.large.train),observed = new.large.train$log.price,method = "Random Forest")
+log.rmse.training(pred = predict(SVM,new.large.train),observed = new.large.train$log.price,method = "Support Vector Machines")
+```
+
+As we predicted, models perform not as good as they perform in the training set.
+
+```{r}
+# Let's stack the predictions of the models on the new data set and train new models
+new.stack.set <- data.frame(log.price = new.large.train$log.price,
+                        RF.predict = predict(RF, new.large.train),
+                        SVM.predict = predict(SVM, new.large.train),
+                        GBM.predict = predict(GBM, new.large.train),
+                        xGBM.predict = predict(xGBM, new.large.train))
+
+# Let's save it for future easier loading
+saveRDS(new.stack.set,"new_stack_set.rds")
+```
+
+Next, let's train new models using these stacked predictors in this larger data set:
+
+### Support vector machines from stacked predictors
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+new.stack.set <- readRDS("new_stack_set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+SVM.stack <- train(log.price ~ ., data = new.stack.set,method = "svmRadial", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(SVM.stack,"SVM.stack.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
 
