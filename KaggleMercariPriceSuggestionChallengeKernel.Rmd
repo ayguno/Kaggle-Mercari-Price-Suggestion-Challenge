@@ -1804,3 +1804,12 @@ end.time <- Sys.time()
 end.time - start.time
 ```
 
+It took 10.78221 mins to run this code chunk with some heating of my computer.
+
+```{r}
+# reload the saved model
+SVM.stack <- readRDS("SVM.stack.rds")
+log.rmse.training(pred = predict(SVM.stack,new.stack.set),observed = new.stack.set$log.price,method = "Support vector machines on the stack")
+```
+
+Doesn't seem to further reduce RMSE when we stacked in this way. Let's also train other algorithms and check if that makes any difference.
