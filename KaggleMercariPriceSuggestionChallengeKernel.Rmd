@@ -1813,3 +1813,306 @@ log.rmse.training(pred = predict(SVM.stack,new.stack.set),observed = new.stack.s
 ```
 
 Doesn't seem to further reduce RMSE when we stacked in this way. Let's also train other algorithms and check if that makes any difference.
+
+```{r}
+dotPlot(varImp(SVM.stack))
+```
+
+We note that SVM uses almost no information from the predictor formed by the SVM.predicted values. This suggest that there is no orthagonalinformation provided once a model is recycled in this way.
+
+### Gradient boosting from stacked predictors
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+new.stack.set <- readRDS("new_stack_set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+GBM.stack <- train(log.price ~ ., data = new.stack.set,method = "gbm", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(GBM.stack,"GBM.stack.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+This took 17.95895 secs, much shorter than the 10K observations.
+
+```{r}
+# reload the saved model
+GBM.stack <- readRDS("GBM.stack.rds")
+log.rmse.training(pred = predict(GBM.stack,new.stack.set),observed = new.stack.set$log.price,method = "Gradient Boosting on the stack")
+```
+
+Again, not so much improvement.
+
+
+```{r}
+dotPlot(varImp(GBM.stack))
+```
+
+### Extreme Gradient boosting from stacked predictors 
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+new.stack.set <- readRDS("new_stack_set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+xGBM.stack <- train(log.price ~ ., data = new.stack.set,method = "xgbLinear", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(xGBM.stack,"xGBM.stack.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+```{r}
+# reload the saved model
+xGBM.stack <- readRDS("xGBM.stack.rds")
+log.rmse.training(pred = predict(xGBM.stack,new.stack.set),observed = new.stack.set$log.price,method = "Extreme Gradient Boosting on the stack")
+```
+
+Not so much better, either.
+
+### Random Forest from stacked predictors 
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+new.stack.set <- readRDS("new_stack_set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+RF.stack <- train(log.price ~ ., data = new.stack.set,method = "rf", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(RF.stack,"RF.stack.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+It took 12.36929 mins, approximately double amount of the time took for the smaller training set.
+
+```{r}
+# reload the saved model
+RF.stack <- readRDS("RF.stack.rds")
+log.rmse.training(pred = predict(RF.stack,new.stack.set),observed = new.stack.set$log.price,method = "Random Forest on the stack")
+```
+
+
+This looks quite some improvement amongst all the models we tested so far. 
+
+Now the questions is: how far this can go? In other words, can we perform another iteration that might potentially improve the prediction?
+
+Let's give a try:
+
+## Stacking iteration 2:
+
+Let's try to stack the predictions of these individual models to train additional algorithms in a seperate set that we will draw from the subtraining set.
+
+```{r}
+library(caret)
+# Get the mini.training set Ids we used to train first generation models
+set.seed(12345)
+mini.trainID <- createDataPartition(y = subtrain$log.price,p = 0.0148, list = FALSE) # Close to 11K observations
+
+set.seed(12345)
+# Get the new.mini.train Ids we used to train second generation models
+new.mini.trainID <- createDataPartition(y = subtrain$log.price[-mini.trainID],p = 0.029, list = FALSE) 
+
+# A new training set close to 108K observations
+
+# Exclude these IDs and get a new data set with ~2 times as large
+second.stack.IDs <- createDataPartition(y = subtrain$log.price[-c(mini.trainID,new.mini.trainID)],p = 0.06, list = FALSE) 
+
+#Get this new larger set, ~ 42K observations
+second.stack.train <- subtrain[second.stack.IDs,]
+
+# Read back the saved primary models:
+xGBM <- readRDS("xGBM.rds")
+GBM <- readRDS("GBM.rds")
+SVM <- readRDS("SVM.rds")
+RF <- readRDS("RF.rds")
+
+# Let's stack the predictions of the models on the new data set and train new models
+new.stack.set2 <- data.frame(log.price = second.stack.train$log.price,
+                        RF.predict = predict(RF, second.stack.train),
+                        SVM.predict = predict(SVM, second.stack.train),
+                        GBM.predict = predict(GBM, second.stack.train),
+                        xGBM.predict = predict(xGBM, second.stack.train))
+
+# Let's save it for future easier loading
+saveRDS(new.stack.set,"new_stack_set2.rds")
+
+# Read back the saved secondary models:
+xGBM.stack <- readRDS("xGBM.stack.rds")
+GBM.stack <- readRDS("GBM.stack.rds")
+SVM.stack <- readRDS("SVM.stack.rds")
+RF.stack <- readRDS("RF.stack.rds")
+
+# Let's first see how well these models are doing in this independent and larger data set:
+par(mfrow = c(2,2))
+log.rmse.training(pred = predict(xGBM.stack,new.stack.set2),observed = new.stack.set2$log.price,method = "Extreme gradient Boosting")
+log.rmse.training(pred = predict(GBM.stack,new.stack.set2),observed = new.stack.set2$log.price,method = "Gradient Boosting")
+log.rmse.training(pred = predict(RF.stack,new.stack.set2),observed = new.stack.set2$log.price,method = "Random Forest")
+log.rmse.training(pred = predict(SVM.stack,new.stack.set2),observed = new.stack.set2$log.price,method = "Support Vector Machines")
+
+```
+
+
+Next, let's train new models using these stacked predictors in this larger data set:
+
+### Random forest second stack:
+
+
+```{r}
+second.stack.set <- data.frame(log.price = new.stack.set2$log.price,
+                        RF.predict = predict(RF.stack, new.stack.set2),
+                        SVM.predict = predict(SVM.stack, new.stack.set2),
+                        GBM.predict = predict(GBM.stack, new.stack.set2),
+                        xGBM.predict = predict(xGBM.stack, new.stack.set2))
+
+# Let's save it for future easier loading
+saveRDS(second.stack.set,"second.stack.set.rds")
+```
+
+### Random Forest from stacked predictors 
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+second.stack.set <- readRDS("second.stack.set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+RF.stack2nd <- train(log.price ~ ., data = second.stack.set,method = "rf", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(RF.stack2nd,"RF.stack2nd.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+This time it took 34.23155 mins.
+
+```{r}
+# reload the saved model
+RF.stack2nd <- readRDS("RF.stack2nd.rds")
+log.rmse.training(pred = predict(RF.stack2nd,second.stack.set),observed = second.stack.set$log.price,method = "Random Forest on the second stack")
+```
+
+Note that it did not get better than the first stack, it sounds like we are not explaining any orthagonal information.
+
+
+### Extreme gradient boosting from stacked predictors 
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+second.stack.set <- readRDS("second.stack.set.rds")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+xGBM.stack2nd <- train(log.price ~ ., data = second.stack.set,method = "xgbLinear", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(xGBM.stack2nd,"xGBM.stack2nd.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+
+```{r}
+# reload the saved model
+xGBM.stack2nd <- readRDS("xGBM.stack2nd.rds")
+log.rmse.training(pred = predict(xGBM.stack2nd,second.stack.set),observed = second.stack.set$log.price,method = "Extreme Gradient Boosting on the second stack")
+```
+
+# Trying BoxCox transformation in various ways
+
+```{r, fig.width=10, fig.height= 10}
+par(mfrow = c(2,2))
+hist(exp(mini.subtrain$log.price), breaks = 50, col = "navy")
+hist(mini.subtrain$log.price, breaks = 50, col = "navy")
+hist(BoxCox(mini.subtrain$log.price,lambda = BoxCox.lambda(mini.subtrain$log.price)), breaks = 50, col = "navy")
+hist(BoxCox(exp(mini.subtrain$log.price),lambda = BoxCox.lambda(exp(mini.subtrain$log.price))), breaks = 50, col = "navy")
+
+```
+
+## Stacking iteration 3:
+
+Now, let's try something a little different, and see if it is indeed different. 
+
