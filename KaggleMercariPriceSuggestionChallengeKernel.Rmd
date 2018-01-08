@@ -2112,6 +2112,11 @@ hist(BoxCox(exp(mini.subtrain$log.price),lambda = BoxCox.lambda(exp(mini.subtrai
 
 ```
 
+It is questionable how much diference this transformation adds in addition to log transformation.The variance decreases, which could be a good or bad thing.
+
+Let's try to figure out by training new models after BoxCox transformation.
+
+
 ## Stacking iteration 3:
 
 Now, let's try something a little different, and see if it is indeed different. 
