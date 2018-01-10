@@ -2119,5 +2119,5 @@ Let's try to figure out by training new models after BoxCox transformation.
 
 ## Stacking iteration 3:
 
-Now, let's try something a little different, and see if it is indeed different . 
+Now, let's try something a little different, and see if it is indeed different. 
 
