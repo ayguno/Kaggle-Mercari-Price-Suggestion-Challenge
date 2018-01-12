@@ -1542,8 +1542,6 @@ We will use parallel processing since training models on the large data sets is 
 Instead, I recall training models with modestly size data sets (~10K observations) earlier. In this case, I will get a similar size new mini.training set to train the algorithms. This will increase bias, but there is not much else we can do at the moment. In the future attempts, it is a good idea to learn how to use clusters and big data computing.
 
 ```{r}
-
-
 library(caret)
 # Get the mini.training set
 set.seed(12345)
@@ -2117,7 +2115,7 @@ It is questionable how much diference this transformation adds in addition to lo
 Let's try to figure out by training new models after BoxCox transformation.
 
 
-## Stacking iteration 3:
+# Training algorithms after BoxCox transformation of the price:
 
 Now, let's try something a little different, and see if it is indeed different. 
 
@@ -2128,11 +2126,114 @@ mini.subtrain<- readRDS("mini_subtrain_locked.rds")
 subtrain <- readRDS("subtrain_locked.rds")
 validation <- readRDS("validation_locked.rds")
 test <- readRDS("test_locked.rds")
-library(dplyr)
-mini.subtrain<- mini.subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
-subtrain <- subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
-validation <- validation %>% mutate(log.price = log(price +1)) %>% select(-price)
+
 subtrain <- subtrain[complete.cases(subtrain),]
 validation <- subtrain[complete.cases(validation),]
+
+
+mini.train <- readRDS("mini_train.rds")
+
+library(dplyr);library(forecast)
+
+lambda.mini.train <- BoxCox.lambda(mini.train$log.price)
+mini.train<- mini.train %>% mutate(BoxCox.log.price = BoxCox(log.price,lambda = lambda.mini.train)) %>% select(-log.price)
+
 ```
 
+
+### Extreme gradient boosting after BoxCox transformation
+
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+xGBM.BC <- train(BoxCox.log.price ~ ., data = mini.train,method = "xgbLinear", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(xGBM.BC,"xGBM.BC.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+```{r}
+# reload the saved model
+xGBM.BC <- readRDS("xGBM.BC.rds")
+log.rmse.training(pred = predict(xGBM.BC,mini.train),observed = mini.train$BoxCox.log.price,method = "BoxCox Extreme Gradient Boosting")
+```
+
+This performance looks great! Particularly RMSE at this scale is substantially reduced. 
+
+Still not sure if this is a deceiving result because we are working at an artificial scale. But we will check this once we wil inverse BoxCox transform our predicted and expected results and calculate RMSE once again.
+
+Overall promising results!
+
+```{r}
+pred.log <- InvBoxCox(predict(xGBM.BC,mini.train),lambda = lambda.mini.train)
+obs.log <- InvBoxCox(mini.train$BoxCox.log.price,lambda = lambda.mini.train)
+log.rmse.training(pred = pred.log,observed = obs.log,method = "InvBoxCox Extreme Gradient Boosting")
+
+```
+
+When we get back to the log transformed state, we indeed realize that the RMSE increases again. Therefore, the performance of the model looks infilated in the BoxCox transformed state of the response variable.
+
+
+### Random Forest after BoxCox transformation
+
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+RF.BC <- train(BoxCox.log.price ~ ., data = mini.train,method = "rf", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(RF.BC,"RF.BC.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+```{r}
+# reload the saved model
+RF.BC <- readRDS("RF.BC.rds")
+log.rmse.training(pred = predict(RF.BC,mini.train),observed = mini.train$BoxCox.log.price,method = "BoxCox Random Forest")
+```
+
+
+```{r}
+pred.log <- InvBoxCox(predict(RF.BC,mini.train),lambda = lambda.mini.train)
+obs.log <- InvBoxCox(mini.train$BoxCox.log.price,lambda = lambda.mini.train)
+log.rmse.training(pred = pred.log,observed = obs.log,method = "InvBoxCox Random Forest")
+
+```
