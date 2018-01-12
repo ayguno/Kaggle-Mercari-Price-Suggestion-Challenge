@@ -2121,3 +2121,18 @@ Let's try to figure out by training new models after BoxCox transformation.
 
 Now, let's try something a little different, and see if it is indeed different. 
 
+Reload the locked data sets for training our models:
+
+```{r}
+mini.subtrain<- readRDS("mini_subtrain_locked.rds")
+subtrain <- readRDS("subtrain_locked.rds")
+validation <- readRDS("validation_locked.rds")
+test <- readRDS("test_locked.rds")
+library(dplyr)
+mini.subtrain<- mini.subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
+subtrain <- subtrain %>% mutate(log.price = log(price +1)) %>% select(-price)
+validation <- validation %>% mutate(log.price = log(price +1)) %>% select(-price)
+subtrain <- subtrain[complete.cases(subtrain),]
+validation <- subtrain[complete.cases(validation),]
+```
+
