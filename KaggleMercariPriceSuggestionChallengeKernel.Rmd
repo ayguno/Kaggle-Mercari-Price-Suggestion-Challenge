@@ -2237,3 +2237,37 @@ obs.log <- InvBoxCox(mini.train$BoxCox.log.price,lambda = lambda.mini.train)
 log.rmse.training(pred = pred.log,observed = obs.log,method = "InvBoxCox Random Forest")
 
 ```
+
+
+For Random Forest the same situation appears to be the case. 
+
+Let's also try using BoxCox transformation on the predictors when trainign the model and see if that makes any difference:
+
+
+```{r}
+start.time <- Sys.time()
+setwd("~/Desktop/2016/Data_science/Kaggle/Kaggle-Mercari-Price-Suggestion-Challenge")
+
+# Long operation in a standard computer!
+library(caret)
+library(parallel);library(doParallel)
+# Configure parallel computation
+cluster <- makeCluster(detectCores() - 1) # Leave one core for the OS
+registerDoParallel(cluster)
+
+# Configure trainControl object
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+
+#Train the model
+set.seed(12345)
+xGBM.BC2 <- train(BoxCox.log.price ~ ., data = mini.train,method = "xgbLinear",preProcess = "BoxCox", trControl = fitControl, verbose = FALSE) 
+#save the model for future use
+saveRDS(xGBM.BC2,"xGBM.BC2.rds")
+
+# Stop and De-register parallel processing cluster
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
