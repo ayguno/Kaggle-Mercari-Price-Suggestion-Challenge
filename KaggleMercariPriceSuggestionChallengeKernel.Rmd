@@ -2271,3 +2271,23 @@ registerDoSEQ()
 end.time <- Sys.time()
 end.time - start.time
 ```
+
+```{r}
+# reload the saved model
+xGBM.BC2 <- readRDS("xGBM.BC2.rds")
+log.rmse.training(pred = predict(xGBM.BC2,mini.train),observed = mini.train$BoxCox.log.price,method = "BoxCox Extreme Gradient Boosting BoxCox on predictors")
+```
+
+
+
+```{r}
+pred.log <- InvBoxCox(predict(xGBM.BC2,mini.train),lambda = lambda.mini.train)
+obs.log <- InvBoxCox(mini.train$BoxCox.log.price,lambda = lambda.mini.train)
+log.rmse.training(pred = pred.log,observed = obs.log,method = "InvBoxCox Extreme Gradient Boosting")
+
+```
+
+It doesn't take too long to figure out that it doesn't make to mmuch difference.
+
+
+
