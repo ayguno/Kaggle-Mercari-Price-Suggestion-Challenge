@@ -30,11 +30,13 @@ Here
 # Need to download files from kaggle (links available only after login!)
 # Need to get 'archive' package to make a connection to 7z zipped files!
 # devtools::install_github("jimhester/archive")
-#library(archive);library(readr)
-#train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
-#test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
-#sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
+library(archive);library(readr)
+train <- data.frame(read_delim(archive_read("train.tsv.7z"), delim = "\t"))
+test <- data.frame(read_delim(archive_read("test.tsv.7z"), delim = "\t"))
+sample_submission <- data.frame(read_delim(archive_read("sample_submission.csv.7z"), delim = ","))
 # 
+write.csv(train,"train.csv",row.names = FALSE)
+write.csv(test,"test.csv",row.names = FALSE)
 # # Save the training and test sets for easy loading in future
 #saveRDS(train, "train.rds");saveRDS(test,"test.rds")
 # write.csv(sample_submission,"sample_submission.csv", row.names = FALSE)
@@ -2290,4 +2292,18 @@ log.rmse.training(pred = pred.log,observed = obs.log,method = "InvBoxCox Extreme
 It doesn't take too long to figure out that it doesn't make to mmuch difference.
 
 
+
+Saving data sets for Deep Learning Experiments using Python:
+
+```{r}
+mini.subtrain<- readRDS("mini_subtrain_locked.rds")
+subtrain <- readRDS("subtrain_locked.rds")
+validation <- readRDS("validation_locked.rds")
+test <- readRDS("test_locked.rds")
+
+write.csv(mini.subtrain,"mini_subtrain.csv")
+write.csv(subtrain,"subtrain.csv")
+write.csv(validation,"validation.csv")
+
+```
 
